@@ -9,8 +9,10 @@ require 'mqtt'
 #########################
 basename = $0
 cfgfilename=basename.gsub('.rb','.yaml')
+@datafilename=basename.gsub('.rb','.data')
 @cfg = YAML.load_file(cfgfilename)
-puts @cfg
+@data = YAML.load_file(@datafilename)
+
 ctl = {}
 @threads = []
 @connections = []
@@ -21,7 +23,6 @@ ctl = {}
 Thread.new {
 @cfg['host'].each do |host, ip |
     msg = "{\"name\":\"#{host}_rssi\", \"stat_t\":\"#{@topic}/#{host}_rssi/tele\",\"unit_of_meas\":\"dBm\",\"unique_id\":\"#{host}_rssi\", \"device\":{\"ids\":[\"#{host}\"],\"name\":\"#{host}\",\"mf\":\"straw\",\"mdl\":\"ruby\",\"sw\":\"0.0.1\"}}"
-    puts msg
     @mqtt.publish("homeassistant/sensor/#{host}_rssi/config",msg)
 end
 }
@@ -51,9 +52,18 @@ end
 # BTmon
 #
 def bt2mqtt(host, name, rssi)
-    time = Time.new.inspect
     @mqtt.publish("#{@topic}/#{host}_rssi/tele",rssi)
-    puts "#{time} #{host},#{name}, #{rssi}"
+    @data[name] = Time.new.to_i
+end
+def data_loop()
+    @data.each{ |name,time|
+         if (Time.new.to_i - time > 10 )
+             @mqtt.publish("#{@topic}/#{name}", "ON")
+         else
+             @mqtt.publish("#{@topic}/#{name}", "OFF")
+         end
+    }
+    File.open(@datafilename,'w') {|f| f.write @data.to_yaml }
 end
 def btmon2rssi(host,data,devices)
     data.match(/((\h{2}:){5}\h{2}).*RSSI: (-?\d+) dBm/m)
@@ -99,6 +109,7 @@ end
 	    end
 	    channel.close
 	    ssh.exec!('hciconfig hci0 down')
+            data_loop
             sleep(30)
     	end
     }
